@@ -1,5 +1,7 @@
 // Restock – shared grocery list & home inventory
 import * as db from './db.js';
+import { scan } from './scanner.js';
+import { lookup, fetchImage } from './lookup.js';
 
 /* ======================= basics ======================= */
 const $ = s => document.querySelector(s);
@@ -37,7 +39,7 @@ function demoStarter() {
     const aisles = {};
     for (const st of stores) { const a = st.aisles.find(a => a.label === sec); if (a) aisles[st.id] = a.id; }
     return { id: uid(), household_id: 'demo', name, brand, brand_only, size, emoji, photo_path: null, barcode: null, spot_id: spot(r, s),
-      status, skip: false, extra: false, got: false, count_mode: false, qty: 0, min_qty: 1, target: 2, only_at: [], aisles, ...extra };
+      status, skip: false, extra: false, got: false, count_mode: false, qty: 0, min_qty: 1, target: 2, only_at: [], aisles, barcodes: [], ...extra };
   };
   const products = [
     P('2% Milk', 'Lactantia', false, '2 L', '🥛', 'Kitchen', 'Fridge', 'low', 'Dairy & Eggs'),
@@ -59,6 +61,7 @@ const buyQty = p => Math.max(1, (p.target || 0) - (p.qty || 0));
 const storeName = st => st.location ? `${st.chain} — ${st.location}` : st.chain;
 const storeById = id => S.stores.find(s => s.id === id);
 const prodById = id => S.products.find(p => p.id === id);
+const byCode = code => S.products.find(p => (p.barcodes || []).includes(code));
 const chains = () => [...new Set(S.stores.map(s => s.chain))];
 const spotInfo = id => { for (const r of S.rooms) for (const s of r.spots) if (s.id === id) return { room: r, spot: s }; return null; };
 function thumb(p, big) {
@@ -106,8 +109,9 @@ function syncBadge(n) {
 }
 
 function viewHome() {
-  if (!S.products.length) return `<div class="empty">No products yet.<br><br><button class="btn" data-act="newProduct">+ Add your first product</button></div>`;
-  let h = `<p class="hint">Tap <b>Low</b> or <b>Out</b> as you walk the house. Those go on the shared list. <b>Skip</b> = out, but not needed right now.</p>`;
+  if (!S.products.length) return `<div class="empty">No products yet.<br><br><button class="btn" data-act="scanHome">📷 Scan your first product</button><button class="btn sec" data-act="newProduct">+ Add one by hand</button></div>`;
+  let h = `<button class="btn scanbtn" data-act="scanHome">📷 Scan an item</button>
+    <p class="hint">Tap <b>Low</b> or <b>Out</b> as you walk the house. Those go on the shared list. <b>Skip</b> = out, but not needed right now. Scan an empty to mark it Out.</p>`;
   const row = p => {
     const ctl = p.count_mode
       ? `<div class="step"><button data-qty="-1" data-id="${p.id}" aria-label="One less">−</button><span>${p.qty}</span><button data-qty="1" data-id="${p.id}" aria-label="One more">+</button></div>`
@@ -159,14 +163,14 @@ function viewList() {
   return h + listButtons();
 }
 const listButtons = () => `<button class="btn sec" data-act="addToList">+ Add something to the list</button>
-  <button class="btn dis" data-act="scanSoon">📷 Scan to check item (Phase 2)</button>
+  <button class="btn scanbtn" data-act="scanList">📷 Scan to check an item</button>
   <button class="btn" data-act="finish">Finish trip</button>`;
 
 function viewProducts() {
   const q = ui.q.toLowerCase();
   const ps = S.products.filter(p => !q || (p.name + ' ' + p.brand).toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name));
   return `<input type="search" id="q" placeholder="Search products" value="${esc(ui.q)}">
-    <button class="btn" data-act="newProduct">+ New product</button>` +
+    <div class="btnrow"><button class="btn" data-act="scanHome">📷 Scan</button><button class="btn sec" data-act="newProduct">+ New product</button></div>` +
     (ps.map(p => { const loc = spotInfo(p.spot_id);
       return `<div class="row" data-edit="${p.id}">${thumb(p)}<div class="info"><b>${esc(p.name)}</b><small>${sub(p)}${loc ? ' · ' + esc(loc.room.name + ' / ' + loc.spot.name) : ''}</small></div></div>`; }).join('')
       || `<div class="empty">${S.products.length ? 'No matches.' : 'No products yet.'}</div>`);
@@ -199,6 +203,7 @@ function viewSetup() {
 
 /* ======================= sheets ======================= */
 function openSheet(html) { $('#panel').innerHTML = html; $('#sheet').classList.remove('hidden'); $('#panel').scrollTop = 0; }
+function closeSheetQuiet() { $('#sheet').classList.add('hidden'); draft = null; draftPhoto = null; }
 function closeSheet() { $('#sheet').classList.add('hidden'); draft = null; draftPhoto = null; render(); }
 
 function productSheet(id) {
@@ -206,8 +211,8 @@ function productSheet(id) {
   draftPhoto = null;
   draft = p ? clone(p) : { id: uid(), household_id: HH.id, name: '', brand: '', brand_only: false, size: '', emoji: '🛒', photo_path: null, barcode: null,
     spot_id: S.rooms[0]?.spots[0]?.id || null, status: 'have', skip: false, extra: false, got: false, count_mode: false, qty: 0, min_qty: 1, target: 2,
-    only_at: [], aisles: {}, _new: true };
-  const d = draft;
+    only_at: [], aisles: {}, barcodes: [], _new: true };
+  const d = draft; d.barcodes = d.barcodes || [];
   const spotOpts = S.rooms.map(r => `<optgroup label="${esc(r.name)}">${r.spots.map(s => `<option value="${s.id}" ${s.id === d.spot_id ? 'selected' : ''}>${esc(r.name)} / ${esc(s.name)}</option>`).join('')}</optgroup>`).join('');
   openSheet(`<h3>${d._new ? 'New product' : 'Edit product'}<button class="x" data-act="close" aria-label="Close">✕</button></h3>
     <label class="f">Photo</label>
@@ -233,9 +238,92 @@ function productSheet(id) {
     ${S.stores.map(st => `<div class="storeaisle"><span>${esc(storeName(st))}</span><select data-sa="${st.id}"><option value="">—</option>${st.aisles.map(a => `<option value="${a.id}" ${d.aisles[st.id] === a.id ? 'selected' : ''}>${a.num ? esc(a.num) + ' · ' : ''}${esc(a.label)}</option>`).join('')}</select></div>`).join('')}
     <label class="f">Only buy at (blank = anywhere)</label>
     <div class="chips">${chains().map(c => `<button class="chip ${d.only_at.includes(c) ? 'on' : ''}" data-only="${esc(c)}">${esc(c)}</button>`).join('')}</div>
-    <button class="btn dis" data-act="scanSoon" style="margin-top:16px">▦ Scan barcode to fill in (Phase 2)</button>
+    <label class="f">Barcodes</label><div class="chips" id="codes"></div>
+    <button class="btn sec" data-act="scanCode" style="margin-top:8px">▦ Scan a barcode${d.name ? '' : ' to fill this in'}</button>
     <button class="btn" data-act="saveProduct" id="saveBtn">Save</button>
     ${d._new ? '' : `<button class="btn danger" data-act="delProduct">Delete product</button>`}`);
+  drawCodes();
+}
+function drawCodes() {
+  const el = $('#codes'); if (!el || !draft) return;
+  el.innerHTML = draft.barcodes.map(c => `<span class="chip on">${esc(c)}<button class="chipx" data-rmcode="${esc(c)}" aria-label="Remove">✕</button></span>`).join('')
+    || '<span class="hint" style="margin:0">None yet. Products with "other brands OK" can have several.</span>';
+}
+function addCodeToDraft(code) {
+  const other = byCode(code);
+  if (other && other.id !== draft.id) { toast(`That barcode already belongs to ${other.name}`); return false; }
+  if (!draft.barcodes.includes(code)) draft.barcodes.push(code);
+  drawCodes(); return true;
+}
+function imageToDraft(src) {          // File or Blob -> resized JPEG { blob, dataUrl }
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(src), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 800 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      const dataUrl = c.toDataURL('image/jpeg', 0.8);
+      c.toBlob(blob => res({ blob, dataUrl }), 'image/jpeg', 0.8);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('bad image')); };
+    img.src = url;
+  });
+}
+async function fillFromLookup(code) {
+  toast('Looking up the barcode…');
+  const info = await lookup(code);
+  if (!draft || !draft.barcodes.includes(code)) return;
+  if (!info) { toast("Not in the product database. Fill it in once and it'll be remembered."); return; }
+  readProductForm();
+  if (!draft.name) draft.name = info.name;
+  if (!draft.brand && info.brand) { draft.brand = info.brand; draft.brand_only = true; }
+  if (!draft.size) draft.size = info.size;
+  $('#fName').value = draft.name; $('#fBrand').value = draft.brand; $('#fSize').value = draft.size;
+  document.querySelectorAll('[data-dbrand]').forEach(c => c.classList.toggle('on', (c.dataset.dbrand === 'only') === draft.brand_only));
+  toast('Found: ' + (info.name || info.brand));
+  if (!draft.photo_path && !draftPhoto && info.image) {
+    const b = await fetchImage(info.image);
+    if (b && draft) { try { draftPhoto = await imageToDraft(b); $('#ph').innerHTML = thumb(draft, true); } catch {} }
+  }
+}
+function newFromCode(code) { productSheet(null); draft.barcodes = [code]; drawCodes(); fillFromLookup(code); }
+
+/* ---- scanning flows ---- */
+async function scanHome() {
+  const code = await scan({ title: 'Scan an item', hint: 'An empty to mark it Out, or something new to add it' });
+  if (!code) return;
+  const p = byCode(code);
+  if (!p) return newFromCode(code);
+  openSheet(`<h3>Found it<button class="x" data-act="close" aria-label="Close">✕</button></h3>
+    <div class="row">${thumb(p)}<div class="info"><b>${esc(p.name)}${tagFor(p)}</b><small>${sub(p)}</small></div></div>
+    ${p.count_mode
+      ? `<p class="hint">On hand: <b>${p.qty}</b></p><button class="btn" data-fact="used" data-id="${p.id}">Used one up (−1)</button><button class="btn sec" data-fact="add1" data-id="${p.id}">Put one away (+1)</button>`
+      : `<button class="btn red" data-fact="out" data-id="${p.id}">Mark Out</button><button class="btn amber" data-fact="low" data-id="${p.id}">Mark Low</button><button class="btn sec" data-fact="have" data-id="${p.id}">We have it</button>`}
+    <button class="btn sec" data-edit="${p.id}">Edit product</button>`);
+}
+async function scanList() {
+  const code = await scan({ title: 'Check an item', hint: 'Scan what you picked up' });
+  if (!code) return;
+  const p = byCode(code), st = storeById(ui.storeId);
+  if (p && onList(p)) {
+    p.got = true; saveP(p); render();
+    return openSheet(`<div class="verdict ok">✓ Right item</div>
+      <div class="row">${thumb(p)}<div class="info"><b>${esc(p.name)}</b><small>${sub(p)}</small></div></div>
+      <p class="hint">${p.count_mode ? `Get <b>${buyQty(p)}</b>. ` : ''}Ticked off and in the cart.</p>
+      <button class="btn" data-act="scanList">Scan the next one</button><button class="btn sec" data-act="close">Done</button>`);
+  }
+  if (p) {
+    return openSheet(`<div class="verdict warn">Not on the list</div>
+      <div class="row">${thumb(p)}<div class="info"><b>${esc(p.name)}</b><small>${sub(p)}</small></div></div>
+      <button class="btn" data-fact="addcart" data-id="${p.id}">Add it and put it in the cart</button>
+      <button class="btn sec" data-act="close">Put it back</button>`);
+  }
+  const open = S.products.filter(x => onList(x) && !x.got && (!st || !x.only_at.length || x.only_at.includes(st.chain)));
+  openSheet(`<div class="verdict bad">✗ Not a saved product</div>
+    <p class="hint">Barcode ${esc(code)}. If you're buying a different brand and that's OK, tap the list item it's for and the barcode is remembered.</p>
+    ${open.map(x => `<div class="row" data-link="${x.id}" data-code="${esc(code)}">${thumb(x)}<div class="info"><b>${esc(x.name)}</b><small>${sub(x)}</small></div><span class="plus">›</span></div>`).join('')}
+    <button class="btn sec" data-act="newFromCode" data-code="${esc(code)}">Add as a new product</button>
+    <button class="btn sec" data-act="close">Cancel</button>`);
 }
 function readProductForm() {
   const d = draft;
@@ -328,9 +416,23 @@ function saveList() {
 }
 
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-tab],[data-room],[data-status],[data-qty],[data-edit],[data-got],[data-act],[data-store],[data-room-edit],[data-room-mv],[data-dstatus],[data-dmode],[data-dbrand],[data-dskip],[data-only],[data-mv],[data-rma],[data-addlist]');
+  const t = e.target.closest('[data-fact],[data-link],[data-rmcode],[data-tab],[data-room],[data-status],[data-qty],[data-edit],[data-got],[data-act],[data-store],[data-room-edit],[data-room-mv],[data-dstatus],[data-dmode],[data-dbrand],[data-dskip],[data-only],[data-mv],[data-rma],[data-addlist]');
   if (!t) { if (e.target.id === 'sheet') closeSheet(); return; }
   const ds = t.dataset;
+  if (ds.rmcode) { draft.barcodes = draft.barcodes.filter(c => c !== ds.rmcode); drawCodes(); return; }
+  if (ds.fact) {
+    const p = prodById(ds.id); const f = ds.fact;
+    if (f === 'used') p.qty = Math.max(0, p.qty - 1);
+    else if (f === 'add1') p.qty += 1;
+    else if (f === 'addcart') { p.extra = true; p.got = true; }
+    else { p.skip = false; p.status = f; if (f === 'have') { p.got = false; p.extra = false; } }
+    saveP(p); toast(f === 'addcart' ? 'Added and in the cart' : 'Updated'); closeSheet(); return;
+  }
+  if (ds.link) {
+    const p = prodById(ds.link);
+    if (p.brand_only && !arm('lk' + p.id)) { toast(`${p.name} is "${p.brand} only". Tap again if this really is it.`); return; }
+    p.barcodes = [...new Set([...(p.barcodes || []), ds.code])]; p.got = true; saveP(p); toast(`Remembered for ${p.name}. In the cart.`); closeSheet(); return;
+  }
   if (ds.tab) { ui.tab = ds.tab; $('#sheet').classList.add('hidden'); draft = null; render(); window.scrollTo(0, 0); return; }
   if (ds.room) { ui.closed[ds.room] = !ui.closed[ds.room]; render(); return; }
   if (ds.status) {
@@ -368,7 +470,14 @@ document.addEventListener('click', async e => {
     case 'close': closeSheet(); break;
     case 'newProduct': productSheet(null); break;
     case 'addToList': addToListSheet(); break;
-    case 'scanSoon': toast('Barcode scanning comes in Phase 2'); break;
+    case 'scanHome': closeSheetQuiet(); await scanHome(); break;
+    case 'scanList': closeSheetQuiet(); await scanList(); break;
+    case 'newFromCode': newFromCode(ds.code); break;
+    case 'scanCode': {
+      readProductForm(); const code = await scan({ title: 'Scan the product' });
+      if (code && draft && addCodeToDraft(code) && !draft.name) fillFromLookup(code);
+      break;
+    }
     case 'rmPhoto': readProductForm(); draftPhoto = null; db.deletePhoto(draft.photo_path); draft.photo_path = null; $('#ph').innerHTML = thumb(draft, true); t.remove(); break;
     case 'saveProduct': await saveProduct(); break;
     case 'delProduct':
@@ -406,19 +515,7 @@ document.addEventListener('change', e => {
   if (t.id === 'storeSel') { ui.storeId = t.value; lsSet('restock-store', t.value); render(); return; }
   if (t.dataset.assign) { const p = prodById(t.dataset.assign); if (t.value) { p.aisles[ui.storeId] = t.value; saveP(p); toast('Aisle saved for this store'); render(); } return; }
   if (t.id === 'photoIn' && t.files[0]) {
-    const r = new FileReader();
-    r.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const m = 800, k = Math.min(1, m / Math.max(img.width, img.height));
-        const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-        const dataUrl = c.toDataURL('image/jpeg', 0.8);
-        c.toBlob(blob => { draftPhoto = { blob, dataUrl }; $('#ph').innerHTML = thumb(draft, true); }, 'image/jpeg', 0.8);
-      };
-      img.src = r.result;
-    };
-    r.readAsDataURL(t.files[0]);
+    imageToDraft(t.files[0]).then(ph => { draftPhoto = ph; $('#ph').innerHTML = thumb(draft, true); }).catch(() => toast("Couldn't read that image"));
   }
 });
 document.addEventListener('input', e => { if (e.target.id === 'q') { ui.q = e.target.value; render(); } });

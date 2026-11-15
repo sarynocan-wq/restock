@@ -18,6 +18,8 @@ Plain HTML, CSS and JavaScript with no build step. Supabase provides the databas
 | `db.js` | Talking to Supabase, the offline outbox, demo mode |
 | `config.js` | Your Supabase URL and anon key |
 | `sw.js` | Keeps the app loading with a weak signal |
+| `scanner.js` | Camera barcode scanner (built-in Chrome detector, ZXing fallback in `vendor/`) |
+| `lookup.js` | Barcode lookup in Open Food Facts |
 | `supabase/schema.sql` | Database tables and security rules |
 
 ## Setup (one time)
@@ -39,6 +41,6 @@ After changing files, bump `CACHE` in `sw.js` (for example `restock-v2`), so pho
 
 ## Roadmap
 
-- Phase 2: barcode scanning (add products, check an item in the store, mark an empty as Out)
+- ~~Phase 2: barcode scanning~~ done: scan to add (Open Food Facts lookup), scan an empty to mark it Out, scan in the store to check an item
 - Phase 3: learn each store's order from the order you tick items off
 - Phase 4: sale lookups (Flipp search button)

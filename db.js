@@ -68,7 +68,7 @@ const COLS = {
   rooms: ['id', 'household_id', 'name', 'sort', 'spots'],
   stores: ['id', 'household_id', 'chain', 'location', 'sort', 'aisles'],
   products: ['id', 'household_id', 'name', 'brand', 'brand_only', 'size', 'emoji', 'photo_path', 'barcode', 'spot_id',
-    'status', 'skip', 'extra', 'got', 'count_mode', 'qty', 'min_qty', 'target', 'only_at', 'aisles'],
+    'status', 'skip', 'extra', 'got', 'count_mode', 'qty', 'min_qty', 'target', 'only_at', 'aisles', 'barcodes'],
 };
 function clean(table, row) {
   const out = {};

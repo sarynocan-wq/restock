@@ -68,3 +68,20 @@ label.f{display:block;font-size:13px;color:var(--mu);margin:12px 0 4px;font-weig
 .empty{text-align:center;color:var(--mu);padding:30px 10px}
 details summary{cursor:pointer;color:var(--mu);margin:16px 4px 4px;font-weight:600}
 .auth{max-width:420px;margin:20px auto}.logo{font-size:34px;font-weight:800;color:var(--g)}
+
+.scanbtn{background:var(--tx)}
+.btn.red{background:var(--out)}.btn.amber{background:var(--low)}
+.chip .chipx{border:0;background:none;color:inherit;margin-left:6px;padding:0;font-size:13px}
+.verdict{font-size:24px;font-weight:800;text-align:center;padding:16px;border-radius:14px;margin-bottom:8px}
+.verdict.ok{background:var(--gl);color:var(--g)}.verdict.warn{background:#fbefd5;color:#8a5a00}.verdict.bad{background:#f8dcd6;color:#8f2a1b}
+.scanner{position:fixed;inset:0;background:#000;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff}
+.scanner video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.scan-top{position:absolute;top:calc(16px + env(safe-area-inset-top));left:0;right:0;text-align:center;z-index:1;text-shadow:0 1px 3px #000}
+.scan-top b{display:block;font-size:20px}.scan-top small{opacity:.9}
+.scan-box{position:relative;width:78vw;max-width:420px;height:32vw;max-height:170px;border:3px solid #fff;border-radius:14px;box-shadow:0 0 0 100vmax rgba(0,0,0,.45);z-index:1;overflow:hidden}
+.scan-line{position:absolute;left:6%;right:6%;height:2px;background:#ff4d3d;top:50%;animation:scanl 1.6s ease-in-out infinite}
+@keyframes scanl{0%,100%{top:15%}50%{top:85%}}
+.scan-status{position:relative;z-index:1;margin-top:14px;text-align:center;padding:0 20px;min-height:20px}
+.scan-manual{position:relative;z-index:1;width:84vw;max-width:420px;margin-top:10px}
+.scan-actions{position:absolute;bottom:calc(20px + env(safe-area-inset-bottom));left:0;right:0;display:flex;gap:10px;justify-content:center;z-index:1}
+.scan-actions button{border:0;border-radius:99px;padding:12px 18px;font-size:15px;font-weight:600;background:rgba(255,255,255,.9);color:#111}
