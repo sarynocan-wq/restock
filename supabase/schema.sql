@@ -1,6 +1,6 @@
 -- Restock database schema
--- Paste this whole file into Supabase → SQL Editor → New query → Run.
--- Safe to run once on a fresh project.
+-- Already applied to the restock project (migrations restock_initial_schema + restrict_is_member).
+-- Kept here as the record of what the database looks like.
 
 -- ============ Tables ============
 
@@ -64,6 +64,7 @@ create table products (
 create index on rooms (household_id);
 create index on stores (household_id);
 create index on products (household_id);
+create index on members (user_id);
 
 -- ============ Security (row level security) ============
 -- Only members of a household can see or change its data.
@@ -79,12 +80,12 @@ alter table rooms      enable row level security;
 alter table stores     enable row level security;
 alter table products   enable row level security;
 
-create policy "members read household" on households for select using (is_member(id));
-create policy "members rename household" on households for update using (is_member(id));
-create policy "members see members" on members for select using (is_member(household_id));
-create policy "members manage rooms" on rooms for all using (is_member(household_id)) with check (is_member(household_id));
-create policy "members manage stores" on stores for all using (is_member(household_id)) with check (is_member(household_id));
-create policy "members manage products" on products for all using (is_member(household_id)) with check (is_member(household_id));
+create policy "members read household" on households for select to authenticated using (is_member(id));
+create policy "members rename household" on households for update to authenticated using (is_member(id));
+create policy "members see members" on members for select to authenticated using (is_member(household_id));
+create policy "members manage rooms" on rooms for all to authenticated using (is_member(household_id)) with check (is_member(household_id));
+create policy "members manage stores" on stores for all to authenticated using (is_member(household_id)) with check (is_member(household_id));
+create policy "members manage products" on products for all to authenticated using (is_member(household_id)) with check (is_member(household_id));
 
 -- Creating and joining a household goes through these two functions only.
 create or replace function create_household(hh_name text, my_name text) returns uuid
@@ -109,6 +110,10 @@ begin
   return hh;
 end; $$;
 
+revoke execute on function create_household(text, text) from public, anon;
+revoke execute on function join_household(text, text) from public, anon;
+revoke execute on function is_member(uuid) from public, anon;
+grant execute on function is_member(uuid) to authenticated;
 grant execute on function create_household(text, text) to authenticated;
 grant execute on function join_household(text, text) to authenticated;
 
@@ -124,10 +129,10 @@ insert into storage.buckets (id, name, public) values ('photos', 'photos', false
   on conflict (id) do nothing;
 
 create policy "household photos read" on storage.objects for select to authenticated
-  using (bucket_id = 'photos' and is_member(((storage.foldername(name))[1])::uuid));
+  using (bucket_id = 'photos' and public.is_member(((storage.foldername(name))[1])::uuid));
 create policy "household photos write" on storage.objects for insert to authenticated
-  with check (bucket_id = 'photos' and is_member(((storage.foldername(name))[1])::uuid));
+  with check (bucket_id = 'photos' and public.is_member(((storage.foldername(name))[1])::uuid));
 create policy "household photos update" on storage.objects for update to authenticated
-  using (bucket_id = 'photos' and is_member(((storage.foldername(name))[1])::uuid));
+  using (bucket_id = 'photos' and public.is_member(((storage.foldername(name))[1])::uuid));
 create policy "household photos delete" on storage.objects for delete to authenticated
-  using (bucket_id = 'photos' and is_member(((storage.foldername(name))[1])::uuid));
+  using (bucket_id = 'photos' and public.is_member(((storage.foldername(name))[1])::uuid));

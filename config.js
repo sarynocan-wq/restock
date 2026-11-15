@@ -5,5 +5,5 @@
 // Your data is protected by the row-level security rules in supabase/schema.sql.
 // NEVER put the service_role key here.
 
-export const SUPABASE_URL = '';
-export const SUPABASE_ANON_KEY = '';
+export const SUPABASE_URL = 'https://nnfiiyeusabgickjhaju.supabase.co';
+export const SUPABASE_ANON_KEY = 'sb_publishable_6dtuxXO_MBjG8v2O3cYPRQ_ZiVdvVCk';
